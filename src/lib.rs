@@ -20,7 +20,7 @@ pub mod output;
 
 mod emit;
 mod parser;
-mod resolver;
+pub mod resolver;
 
 use inkwell::OptimizationLevel;
 use std::fmt;
