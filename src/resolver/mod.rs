@@ -20,6 +20,7 @@ mod functions;
 mod storage;
 mod types;
 mod variables;
+pub mod casperlabs;
 
 use inkwell::OptimizationLevel;
 use resolver::cfg::{ControlFlowGraph, Instr, Vartable};

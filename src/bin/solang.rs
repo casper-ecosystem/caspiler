@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use solang::abi;
 use solang::output;
+use solang::resolver::casperlabs;
 
 #[derive(Serialize)]
 pub struct EwasmContract {
@@ -45,7 +46,7 @@ fn main() {
                 .help("Emit compiler state at early stage")
                 .long("emit")
                 .takes_value(true)
-                .possible_values(&["cfg", "llvm", "bc", "object"]),
+                .possible_values(&["cfg", "llvm", "bc", "object", "casperlabs"]),
         )
         .arg(
             Arg::with_name("OPT")
@@ -169,6 +170,12 @@ fn process_filename(
     for (contract_no, resolved_contract) in ns.contracts.iter().enumerate() {
         if let Some("cfg") = matches.value_of("EMIT") {
             println!("{}", resolved_contract.print_to_string(&ns));
+            continue;
+        }
+
+        if let Some("casperlabs") = matches.value_of("EMIT") {
+            let contract = casperlabs::CasperlabsContract::new(&resolved_contract);
+            println!("{}", contract.render());
             continue;
         }
 
