@@ -1,14 +1,13 @@
 use std::collections::BTreeSet;
 use num_traits::ToPrimitive;
-use crate::resolver::{Contract, FunctionDecl, Type, Parameter,
+use crate::resolver::{Contract, FunctionDecl, Type,
     cfg::{ControlFlowGraph, Instr, Variable},
-    expression::Expression, Namespace, ContractVariable
+    expression::Expression
 };
 
 const MSG_SENDER: &str = "msg_sender";
-const GET_CALLER: &str = "runtime::get_caller().to_str()";
+const GET_CALLER: &str = "runtime::get_caller()";
 
-use crate::parser::pt::{FunctionTy};
 pub struct CasperlabsContract<'a> {
     pub contract: &'a Contract
 }
@@ -35,7 +34,7 @@ impl<'a> CasperlabsContract<'a> {
         }
     }
 
-    // Stated Render Functions
+    // Render functions
 
     pub fn render(&self) -> String {
         let mut result = Vec::<String>::new();
@@ -47,19 +46,75 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_header(&self) -> String {
         format!("
-            #[casperlabs_contract]
-            mod {name} {{", 
-            name = self.contract.name
+{imports}
+
+#[casperlabs_contract]
+mod {name} {{
+            ", 
+            name = self.contract.name,
+            imports = self.render_imports()
         )
+    }
+
+    fn render_imports(&self) -> String {
+        format!("
+use core::convert::TryInto;
+use alloc::{{collections::BTreeSet, string::String}};
+
+use contract_macro::{{casperlabs_constructor, casperlabs_contract, casperlabs_method}};
+use casperlabs_contract::{{
+    contract_api::{{runtime, storage}},
+    unwrap_or_revert::UnwrapOrRevert,
+}};
+use casperlabs_types::{{
+    runtime_args, CLValue, CLTyped, CLType, Group, Parameter, RuntimeArgs, URef, U256,
+    bytesrepr::{{ToBytes, FromBytes}}, account::AccountHash,
+    contracts::{{EntryPoint, EntryPointAccess, EntryPointType, EntryPoints}},
+}};
+        ")
     }
 
     fn render_footer(&self) -> String {
         format!("
-            }}
+}}
+
+fn get_key<T: FromBytes + CLTyped>(name: &str) -> T {{
+    let key = runtime::get_key(name)
+        .unwrap_or_revert()
+        .try_into()
+        .unwrap_or_revert();
+    storage::read(key)
+        .unwrap_or_revert()
+        .unwrap_or_revert()
+}}
+
+fn set_key<T: ToBytes + CLTyped>(name: &str, value: T) {{
+    match runtime::get_key(name) {{
+        Some(key) => {{
+            let key_ref = key.try_into().unwrap_or_revert();
+            storage::write(key_ref, value);
+        }}
+        None => {{
+            let key = storage::new_uref(value).into();
+            runtime::put_key(name, key);
+        }}
+    }}
+}}
+
+fn new_key(a: &str, b: AccountHash) -> String {{
+    format!(\"{{}}_{{}}\", a, b)
+}}
+
+fn ret<T: CLTyped + ToBytes>(value: T) {{
+    runtime::ret(CLValue::from_t(value).unwrap_or_revert())
+}}
         ")
     }
 
     fn render_functions(&self) -> String {
+        // for f in self.contract.functions.iter() {
+        //     println!("Function: {:?} {:?}", f.name, f.ast_index);
+        // }
         let mut result = Vec::<String>::new(); 
         for function in &self.functions() {
             result.push(self.render_function(&function));
@@ -69,17 +124,15 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_function(&self, function: &FunctionDecl) -> String {
         format!("
-                {attr}
-                fn {name}({args}) {{ {body}
-                }}",
+    {attr}
+    fn {name}({args}) {{ {body}
+    }}",
             attr = self.render_function_macro_name(&function),
             name = self.render_function_name(&function),
             args = self.render_function_args(&function),
             body = self.render_function_body(&function)
         )
     }
-
-    // No state Render Functions
 
     fn render_function_macro_name(&self, function: &FunctionDecl) -> String {
         match (function.is_constructor(), function.is_public()) {
@@ -113,14 +166,14 @@ impl<'a> CasperlabsContract<'a> {
     fn render_function_cfg(&self, cfg: &ControlFlowGraph) -> String {
         let mut result = Vec::<String>::new();
         let block = cfg.bb.first().unwrap();
-        for var in &cfg.vars {
-            println!("Var: {}, {}", var.id.name, self.render_type(&var.ty));
-        }
-        println!("Vars Done");
+        // for var in &cfg.vars {
+        //     println!("Var: {}, {}", var.id.name, self.render_type(&var.ty));
+        // }
+        // println!("Vars Done");
         for instruction in &block.instr {
             match self.render_instruction(&instruction, &cfg.vars) {
                 Some(i) => result.push(format!{"
-                    {}", i}),
+        {}", i}),
                 None => {}
             }
         }
@@ -129,29 +182,25 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_instruction(&self, instruction: &Instr, vars: &Vec<Variable>) -> Option<String> {
         match instruction {
-            Instr::Eval { expr } => {
-                None
-            },
+            Instr::Eval { expr: _ } => { None },
             Instr::Return { value } => {
                 if value.is_empty() { None } else {
                     let expression = self.render_expression(
                         &value.first().unwrap(), &vars);
-                    Some(format!("runtime::ret({});", expression))
+                    Some(format!("ret({});", expression))
                 }
             },
-            Instr::SetStorage { ty, local, storage } => {
-                // println!("instr: SetStorage: ty {:?}", );
+            Instr::SetStorage { ty: _, local, storage } => {
                 Some(format!(
                     "set_key({}, {});",
                     self.render_var_name_or_default(&storage, &vars),
-                    vars[*local].id.name
+                    self.render_local_var(*local, vars)
                 ))
             },
             Instr::Set { res, expr } => {
-                let left = vars[*res].id.name.clone();
+                let left = self.render_local_var(*res, vars);
                 let right = self.render_expression(&expr, &vars);
                 if left == right { return None };
-                // println!("instr: Set: {:?}", right);
                 Some(format!(
                     "let {}: {} = {};",
                     left,
@@ -159,8 +208,19 @@ impl<'a> CasperlabsContract<'a> {
                     right
                 ))
             },
+            Instr::Call { res: _, func, args } => {
+                let fn_name = self.contract.functions.get(*func).unwrap().name.clone();
+                let mut result = Vec::<String>::new();
+                for arg in args {
+                    result.push(self.render_expression(arg, vars));
+                }
+                Some(format!(
+                    "{}({});",
+                    fn_name,
+                    result.join(", ")
+                ))
+            },
             _ => {
-                // println!("{:?}", instruction);
                 Some(format!("unknown_instruction"))
             }
         }
@@ -168,31 +228,21 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_expression(&self, expression: &Expression, vars: &Vec<Variable>) -> String {
         match expression {
+            Expression::BoolLiteral(_, false) => "false".to_string(),
+            Expression::BoolLiteral(_, true) => "true".to_string(),
             Expression::StorageLoad(_, ty, expr) => {
                 match self.render_var_name_or_default(expr, vars).as_str() {
                     GET_CALLER => GET_CALLER.to_string(),
                     result => format!(
-                        "get_key::<{}>::({})",
+                        "get_key::<{}>({})",
                         self.render_type(ty),
                         result
                     )
                 }
-
-
-                // let result = self.render_var_name_or_default(expr, vars);
-                // if result == GET_CALLER {
-                //     result
-                // } else {
-                //     format!(
-                //         "get_key::<{}>::({})",
-                //         self.render_type(ty),
-                //         result
-                //     )
-                // }
             },
-            Expression::FunctionArg(_, pos) => vars[*pos].id.name.clone(),
-            Expression::Variable(_, res) => format!("{}", vars[*res].id.name),
-            Expression::NumberLiteral(_, bits, n) => format!("{}", n.to_str_radix(10)),
+            Expression::FunctionArg(_, pos) => self.render_local_var(*pos, vars),
+            Expression::Variable(_, res) => self.render_local_var(*res, vars),
+            Expression::NumberLiteral(_, _bits, n) => format!("{}", n.to_str_radix(10)),
             Expression::Add(_, l, r) => format!(
                 "({} + {})",
                 self.render_expression(&l, &vars),
@@ -207,7 +257,7 @@ impl<'a> CasperlabsContract<'a> {
                 let first = &exprs.get(0).unwrap().0;
                 let second = &exprs.get(1).unwrap().0;
                 format!(
-                    "new_key({}, {})",
+                    "&new_key({}, {})",
                     self.render_var_name_or_default(first, vars),
                     self.render_expression(second, vars)
                 )
@@ -221,12 +271,16 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_var_name_or_default(&self, expression: &Expression, vars: &Vec<Variable>) -> String {
         match expression {
-            Expression::NumberLiteral(_, bits, n) => {
+            Expression::NumberLiteral(_, _bits, n) => {
                 let position: usize = n.to_usize().unwrap();
                 self.variable_name(position)
             }
             _ => self.render_expression(expression, vars)
         }
+    }
+
+    fn render_local_var(&self, id: usize, vars: &Vec<Variable>) -> String {
+        vars[id].id.name.replace(".", "").clone()
     }
 
     fn render_type(&self, ty: &Type) -> String {
@@ -235,13 +289,12 @@ impl<'a> CasperlabsContract<'a> {
             Type::String => "String",
             Type::Uint(8) => "u8",
             Type::Uint(256) => "U256",
-            Type::Address(false) => "AccountKey",
+            Type::Address(false) => "AccountHash",
             _ => {
                 "unknown_type"
             }
         }.to_string()
     }
-
 }
 
 
