@@ -46,6 +46,11 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_header(&self) -> String {
         format!("
+#![no_main]
+#![allow(unused_imports)]
+#![allow(unused_parens)]
+#![allow(non_snake_case)]
+
 {imports}
 
 #[casperlabs_contract]
@@ -58,10 +63,12 @@ mod {name} {{
 
     fn render_imports(&self) -> String {
         format!("
-use core::convert::TryInto;
-use alloc::{{collections::BTreeSet, string::String}};
+extern crate alloc;
 
-use contract_macro::{{casperlabs_constructor, casperlabs_contract, casperlabs_method}};
+use core::convert::TryInto;
+use alloc::{{collections::{{BTreeSet, BTreeMap}}, string::String}};
+
+use casperlabs_contract_macro::{{casperlabs_constructor, casperlabs_contract, casperlabs_method}};
 use casperlabs_contract::{{
     contract_api::{{runtime, storage}},
     unwrap_or_revert::UnwrapOrRevert,
@@ -78,14 +85,14 @@ use casperlabs_types::{{
         format!("
 }}
 
-fn get_key<T: FromBytes + CLTyped>(name: &str) -> T {{
-    let key = runtime::get_key(name)
-        .unwrap_or_revert()
-        .try_into()
-        .unwrap_or_revert();
-    storage::read(key)
-        .unwrap_or_revert()
-        .unwrap_or_revert()
+fn get_key<T: FromBytes + CLTyped + Default>(name: &str) -> T {{
+    match runtime::get_key(name) {{
+        None => Default::default(),
+        Some(value) => {{
+            let key = value.try_into().unwrap_or_revert();
+            storage::read(key).unwrap_or_revert().unwrap_or_revert()
+        }}
+    }}
 }}
 
 fn set_key<T: ToBytes + CLTyped>(name: &str, value: T) {{
@@ -105,9 +112,6 @@ fn new_key(a: &str, b: AccountHash) -> String {{
     format!(\"{{}}_{{}}\", a, b)
 }}
 
-fn ret<T: CLTyped + ToBytes>(value: T) {{
-    runtime::ret(CLValue::from_t(value).unwrap_or_revert())
-}}
         ")
     }
 
@@ -187,7 +191,7 @@ fn ret<T: CLTyped + ToBytes>(value: T) {{
                 if value.is_empty() { None } else {
                     let expression = self.render_expression(
                         &value.first().unwrap(), &vars);
-                    Some(format!("ret({});", expression))
+                    Some(format!("// ret({});", expression))
                 }
             },
             Instr::SetStorage { ty: _, local, storage } => {
@@ -297,8 +301,6 @@ fn ret<T: CLTyped + ToBytes>(value: T) {{
     }
 }
 
-
-
 fn is_blacklisted_fn(name: &str) -> bool {
     let mut fns = BTreeSet::new();
     fns.insert("print(string)");
@@ -315,4 +317,3 @@ fn is_blacklisted_fn(name: &str) -> bool {
     fns.insert("blake2_256(bytes)");
     fns.contains(name)
 }
-
