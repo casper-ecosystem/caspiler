@@ -191,7 +191,7 @@ fn new_key(a: &str, b: AccountHash) -> String {{
                 if value.is_empty() { None } else {
                     let expression = self.render_expression(
                         &value.first().unwrap(), &vars);
-                    Some(format!("// ret({});", expression))
+                    Some(format!("ret({});", expression))
                 }
             },
             Instr::SetStorage { ty: _, local, storage } => {
