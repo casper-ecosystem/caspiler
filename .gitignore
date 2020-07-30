@@ -9,3 +9,7 @@ Cargo.lock
 /llvm-build
 
 *.wasm
+
+formatter/target
+formatter/Cargo.lock
+formatter/main.rs

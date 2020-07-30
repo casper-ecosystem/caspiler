@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use num_traits::ToPrimitive;
 use crate::resolver::{Contract, FunctionDecl, Type,
-    cfg::{ControlFlowGraph, Instr, Variable},
+    cfg::{ControlFlowGraph, Instr, Variable, BasicBlock},
     expression::Expression
 };
 
@@ -46,15 +46,15 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_header(&self) -> String {
         format!("
-#![no_main]
-#![allow(unused_imports)]
-#![allow(unused_parens)]
-#![allow(non_snake_case)]
+            #![no_main]
+            #![allow(unused_imports)]
+            #![allow(unused_parens)]
+            #![allow(non_snake_case)]
 
-{imports}
+            {imports}
 
-#[casperlabs_contract]
-mod {name} {{
+            #[casperlabs_contract]
+            mod {name} {{
             ", 
             name = self.contract.name,
             imports = self.render_imports()
@@ -63,55 +63,54 @@ mod {name} {{
 
     fn render_imports(&self) -> String {
         format!("
-extern crate alloc;
+            extern crate alloc;
 
-use core::convert::TryInto;
-use alloc::{{collections::{{BTreeSet, BTreeMap}}, string::String}};
+            use core::convert::TryInto;
+            use alloc::{{collections::{{BTreeSet, BTreeMap}}, string::String}};
 
-use casperlabs_contract_macro::{{casperlabs_constructor, casperlabs_contract, casperlabs_method}};
-use casperlabs_contract::{{
-    contract_api::{{runtime, storage}},
-    unwrap_or_revert::UnwrapOrRevert,
-}};
-use casperlabs_types::{{
-    runtime_args, CLValue, CLTyped, CLType, Group, Parameter, RuntimeArgs, URef, U256,
-    bytesrepr::{{ToBytes, FromBytes}}, account::AccountHash,
-    contracts::{{EntryPoint, EntryPointAccess, EntryPointType, EntryPoints}},
-}};
+            use casperlabs_contract_macro::{{casperlabs_constructor, casperlabs_contract, casperlabs_method}};
+            use casperlabs_contract::{{
+                contract_api::{{runtime, storage}},
+                unwrap_or_revert::UnwrapOrRevert,
+            }};
+            use casperlabs_types::{{
+                runtime_args, CLValue, CLTyped, CLType, Group, Parameter, RuntimeArgs, URef, U256,
+                bytesrepr::{{ToBytes, FromBytes}}, account::AccountHash,
+                contracts::{{EntryPoint, EntryPointAccess, EntryPointType, EntryPoints}},
+            }};
         ")
     }
 
     fn render_footer(&self) -> String {
         format!("
-}}
+            }}
 
-fn get_key<T: FromBytes + CLTyped + Default>(name: &str) -> T {{
-    match runtime::get_key(name) {{
-        None => Default::default(),
-        Some(value) => {{
-            let key = value.try_into().unwrap_or_revert();
-            storage::read(key).unwrap_or_revert().unwrap_or_revert()
-        }}
-    }}
-}}
+            fn get_key<T: FromBytes + CLTyped + Default>(name: &str) -> T {{
+                match runtime::get_key(name) {{
+                    None => Default::default(),
+                    Some(value) => {{
+                        let key = value.try_into().unwrap_or_revert();
+                        storage::read(key).unwrap_or_revert().unwrap_or_revert()
+                    }}
+                }}
+            }}
 
-fn set_key<T: ToBytes + CLTyped>(name: &str, value: T) {{
-    match runtime::get_key(name) {{
-        Some(key) => {{
-            let key_ref = key.try_into().unwrap_or_revert();
-            storage::write(key_ref, value);
-        }}
-        None => {{
-            let key = storage::new_uref(value).into();
-            runtime::put_key(name, key);
-        }}
-    }}
-}}
+            fn set_key<T: ToBytes + CLTyped>(name: &str, value: T) {{
+                match runtime::get_key(name) {{
+                    Some(key) => {{
+                        let key_ref = key.try_into().unwrap_or_revert();
+                        storage::write(key_ref, value);
+                    }}
+                    None => {{
+                        let key = storage::new_uref(value).into();
+                        runtime::put_key(name, key);
+                    }}
+                }}
+            }}
 
-fn new_key(a: &str, b: AccountHash) -> String {{
-    format!(\"{{}}_{{}}\", a, b)
-}}
-
+            fn new_key(a: &str, b: AccountHash) -> String {{
+                format!(\"{{}}_{{}}\", a, b)
+            }}
         ")
     }
 
@@ -128,9 +127,9 @@ fn new_key(a: &str, b: AccountHash) -> String {{
 
     fn render_function(&self, function: &FunctionDecl) -> String {
         format!("
-    {attr}
-    fn {name}({args}) {{ {body}
-    }}",
+            {attr}
+            fn {name}({args}) {{ {body}
+            }}",
             attr = self.render_function_macro_name(&function),
             name = self.render_function_name(&function),
             args = self.render_function_args(&function),
@@ -158,7 +157,9 @@ fn new_key(a: &str, b: AccountHash) -> String {{
         let mut result = Vec::<String>::new();
         for param in &function.params {
             result.push(format!(
-                "{}: {}", param.name, self.render_type(&param.ty)));
+                "{}: {}", 
+                param.name, 
+                self.render_type(&param.ty)));
         }
         result.join(", ")
     }
@@ -168,47 +169,57 @@ fn new_key(a: &str, b: AccountHash) -> String {{
     }
 
     fn render_function_cfg(&self, cfg: &ControlFlowGraph) -> String {
+        println!("// Got blocks count: {}", cfg.bb.len());
+        for var in &cfg.vars {
+            println!("// Var: {}, {}", var.id.name, self.render_type(&var.ty));
+        }
+        println!("// Vars Done");
+        self.render_block(0, cfg)
+    }
+
+    fn render_block(&self, block_id: usize, cfg: &ControlFlowGraph) -> String {
+        let block = cfg.bb.get(block_id).unwrap();
         let mut result = Vec::<String>::new();
-        let block = cfg.bb.first().unwrap();
-        // for var in &cfg.vars {
-        //     println!("Var: {}, {}", var.id.name, self.render_type(&var.ty));
-        // }
-        // println!("Vars Done");
         for instruction in &block.instr {
-            match self.render_instruction(&instruction, &cfg.vars) {
-                Some(i) => result.push(format!{"
-        {}", i}),
+            match self.render_instruction(&instruction, &cfg) {
+                Some(i) => result.push(format!{"{}", i}),
                 None => {}
             }
         }
         result.join("")
     }
 
-    fn render_instruction(&self, instruction: &Instr, vars: &Vec<Variable>) -> Option<String> {
+    fn render_instruction(&self, instruction: &Instr, cfg: &ControlFlowGraph) -> Option<String> {
         match instruction {
-            Instr::Eval { expr: _ } => { None },
+            Instr::Eval { expr } => { 
+                // println!("expression: {}", self.render_expression(&expr, vars));
+                // Some(self.render_expression(&expr, &cfg.vars))
+                None
+            },
             Instr::Return { value } => {
                 if value.is_empty() { None } else {
                     let expression = self.render_expression(
-                        &value.first().unwrap(), &vars);
+                        &value.first().unwrap(), &cfg.vars);
                     Some(format!("ret({});", expression))
                 }
             },
             Instr::SetStorage { ty: _, local, storage } => {
                 Some(format!(
                     "set_key({}, {});",
-                    self.render_var_name_or_default(&storage, &vars),
-                    self.render_local_var(*local, vars)
+                    self.render_var_name_or_default(&storage, &cfg.vars),
+                    self.render_local_var(*local, &cfg.vars)
                 ))
             },
             Instr::Set { res, expr } => {
-                let left = self.render_local_var(*res, vars);
-                let right = self.render_expression(&expr, &vars);
-                if left == right { return None };
+                let left = self.render_local_var(*res, &cfg.vars);
+                let right = self.render_expression(&expr, &cfg.vars);
+                if left == right { 
+                    return None 
+                };
                 Some(format!(
                     "let {}: {} = {};",
                     left,
-                    self.render_type(&vars[*res].ty),
+                    self.render_type(&cfg.vars[*res].ty),
                     right
                 ))
             },
@@ -216,7 +227,7 @@ fn new_key(a: &str, b: AccountHash) -> String {{
                 let fn_name = self.contract.functions.get(*func).unwrap().name.clone();
                 let mut result = Vec::<String>::new();
                 for arg in args {
-                    result.push(self.render_expression(arg, vars));
+                    result.push(self.render_expression(arg, &cfg.vars));
                 }
                 Some(format!(
                     "{}({});",
@@ -224,14 +235,102 @@ fn new_key(a: &str, b: AccountHash) -> String {{
                     result.join(", ")
                 ))
             },
-            _ => {
-                Some(format!("unknown_instruction"))
+            Instr::BranchCond { cond, true_, false_} => {
+                let else_stm = match self.render_block(*false_, cfg) {
+                    code if code.len() == 0 => code,
+                    code => format!("else {{ {} }}", code)
+                };
+                Some(format!(
+                    "if {} {{ {} }} {}",
+                    self.render_expression(&cond, &cfg.vars),
+                    self.render_block(*true_, cfg),
+                    else_stm
+                ))
+            },
+            Instr::Branch { bb} => {
+                Some(self.render_block(*bb, cfg))
+            },
+            Instr::ClearStorage { ty, storage} => {
+                panic!("Unhandled Instr::ClearStorage");
+            },
+            Instr::SetStorageBytes { local, storage, offset} => {
+                panic!("Unhandled Instr::SetStorageBytes");
+            },
+            Instr::Constant { res, constant} => {
+                panic!("Unhandled Instr::Constant");
+            },
+
+            Instr::Store { dest, pos} => {
+                panic!("Unhandled Instr::Store");
+            },
+            Instr::AssertFailure { expr} => {
+                panic!("Unhandled Instr::AssertFaulure");
+            },
+            Instr::Print{ expr} => {
+                panic!("Unhandled Instr::Print");
+            },
+            Instr::Constructor {
+                success,
+                res,
+                contract_no,
+                constructor_no,
+                args,
+                value,
+                gas,
+                salt
+            } => {
+                panic!("Unhandled Instr::Constructor");
+            },
+            Instr::ExternalCall {
+                success, 
+                address,
+                contract_no,
+                function_no,
+                args,
+                value,
+                gas
+            } => {
+                panic!("Unhandled Instr::ExternalCall");
+            },
+            Instr::AbiDecode {
+                res,
+                selector,
+                exception,
+                tys,
+                data
+            } => {
+                panic!("Unhandled Instr::AbiDecode");
+            },
+            Instr::Unreachable => {
+                panic!("Unhandled Instr::Unreachable");
+            },
+            Instr::SelfDestruct { recipient} => {
+                panic!("Unhandled Instr::SelfDestruct");
+            },
+            Instr::Hash { res, hash, expr} => {
+                panic!("Unhandled Instr::Hash");
             }
         }
     }
 
     fn render_expression(&self, expression: &Expression, vars: &Vec<Variable>) -> String {
         match expression {
+            Expression::Not(_, expr) => format!("!({})", self.render_expression(&expr, vars)),
+            // Expression::Or(_, l, r) => format!(
+            //     "({} || {})", 
+            //     self.render_expression(&l, vars),
+            //     self.render_expression(&r, vars)
+            // ),
+            // Expression::And(_, l, r) => format!(
+            //     "({} && {})", 
+            //     self.render_expression(&l, vars),
+            //     self.render_expression(&r, vars)
+            // ),
+            Expression::Equal(_, l, r) => format!(
+                "({} == {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
             Expression::BoolLiteral(_, false) => "false".to_string(),
             Expression::BoolLiteral(_, true) => "true".to_string(),
             Expression::StorageLoad(_, ty, expr) => {

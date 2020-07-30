@@ -1,0 +1,23 @@
+[package]
+name = "contract"
+version = "0.1.0"
+authors = ["zie1ony <maciej@casperlabs.io>"]
+edition = "2018"
+
+[dependencies]
+casperlabs-contract = "0.6.0"
+casperlabs-types = "0.6.0"
+casperlabs_contract_macro = "0.1.0"
+
+[[bin]]
+name = "contract"
+path = "src/main.rs"
+bench = false
+doctest = false
+test = false
+
+[features]
+default = ["casperlabs-contract/std", "casperlabs-types/std", "casperlabs-contract/test-support"]
+
+[profile.release]
+lto = true
