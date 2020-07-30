@@ -46,6 +46,7 @@ fn main() {
                 .help("Emit compiler state at early stage")
                 .long("emit")
                 .takes_value(true)
+                .default_value("casperlabs")
                 .possible_values(&["cfg", "llvm", "bc", "object", "casperlabs"]),
         )
         .arg(
