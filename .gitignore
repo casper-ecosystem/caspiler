@@ -12,4 +12,4 @@ Cargo.lock
 
 formatter/target
 formatter/Cargo.lock
-formatter/main.rs
+formatter/src/main.rs

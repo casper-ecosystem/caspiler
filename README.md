@@ -5,12 +5,37 @@
 - [x] Contract Definition
     - [x] Contract
     - [x] Constructor
-    - [x] Public method
-    - [x] Private method
+    - [x] Public Method
+    - [x] Private Method
 - [x] Logical Operators
     - [x] Not `!`
 	- [x] Or `||`
     - [x] And `&&`
+- [x] Arithmetic Operators
+    - [x] Add `+`
+    - [x] Substract `-`
+    - [x] Multiply `*`
+    - [x] Divide `/`
+    - [x] Module `%`
+    - [x] Power `**`
+    - [x] Unary Minus `-`
+- [x] Comparators
+    - [x] Equal `==`
+    - [x] Not Equal `!=`
+    - [x] Less `<`
+    - [x] More `>`
+    - [x] Less or Equal `<=`
+    - [x] More or Equal `>=`
 - [x] Statements
     - [x] If
     - [x] If Else
+    - [x] Ternary
+    - [x] Calling Local Methods
+    - [x] `msg.sender` (dirty hack)
+    - [x] Returns
+- [x] Types
+    - [x] Bool
+    - [x] U8
+    - [x] U256
+    - [x] Address
+    - [x] Mapping

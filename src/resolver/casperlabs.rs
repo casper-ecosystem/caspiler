@@ -115,9 +115,6 @@ impl<'a> CasperlabsContract<'a> {
     }
 
     fn render_functions(&self) -> String {
-        // for f in self.contract.functions.iter() {
-        //     println!("Function: {:?} {:?}", f.name, f.ast_index);
-        // }
         let mut result = Vec::<String>::new(); 
         for function in &self.functions() {
             result.push(self.render_function(&function));
@@ -315,24 +312,56 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_expression(&self, expression: &Expression, vars: &Vec<Variable>) -> String {
         match expression {
-            Expression::Not(_, expr) => format!("!({})", self.render_expression(&expr, vars)),
-            // Expression::Or(_, l, r) => format!(
-            //     "({} || {})", 
-            //     self.render_expression(&l, vars),
-            //     self.render_expression(&r, vars)
-            // ),
-            // Expression::And(_, l, r) => format!(
-            //     "({} && {})", 
-            //     self.render_expression(&l, vars),
-            //     self.render_expression(&r, vars)
-            // ),
-            Expression::Equal(_, l, r) => format!(
-                "({} == {})",
+            // Literals
+            Expression::FunctionArg(_, pos) => self.render_local_var(*pos, vars),
+            Expression::BoolLiteral(_, false) => "false".to_string(),
+            Expression::BoolLiteral(_, true) => "true".to_string(),
+            // Expression::BytesLiteral(_, s) =>
+            Expression::NumberLiteral(_, _bits, n) => format!("{}", n.to_str_radix(10)),
+            // Expression::StructLiteral(_, _, expr) =>
+            // Expression::ConstArrayLiteral(_, dims, exprs) =>
+            // Expression::ArrayLiteral(_, _, dims, exprs) => 
+            
+            // Arithmetic
+            Expression::Add(_, l, r) => format!(
+                "({} + {})",
                 self.render_expression(&l, vars),
                 self.render_expression(&r, vars)
             ),
-            Expression::BoolLiteral(_, false) => "false".to_string(),
-            Expression::BoolLiteral(_, true) => "true".to_string(),
+            Expression::Subtract(_, l, r) => format!(
+                "({} - {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            // Expression::BitwiseOr(_, l, r) => format!(
+            // Expression::BitwiseAnd(_, l, r) => format!(
+            // Expression::BitwiseXor(_, l, r) => format!(
+            // Expression::ShiftLeft(_, l, r) => format!(
+            // Expression::ShiftRight(_, l, r, _) => format!(
+            Expression::Multiply(_, l, r) => format!(
+                "({} * {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::UDivide(_, l, r) | Expression::SDivide(_, l, r) => format!(
+                "({} / {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::UModulo(_, l, r) | Expression::SModulo(_, l, r) => format!(
+                "({} % {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::Power(_, l, r) => format!(
+                "{}.pow({})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+
+            // Data
+            Expression::Variable(_, res) => self.render_local_var(*res, vars),
+            // Expression::Load(_, expr) => {
             Expression::StorageLoad(_, ty, expr) => {
                 match self.render_var_name_or_default(expr, vars).as_str() {
                     GET_CALLER => GET_CALLER.to_string(),
@@ -343,19 +372,122 @@ impl<'a> CasperlabsContract<'a> {
                     )
                 }
             },
-            Expression::FunctionArg(_, pos) => self.render_local_var(*pos, vars),
-            Expression::Variable(_, res) => self.render_local_var(*res, vars),
-            Expression::NumberLiteral(_, _bits, n) => format!("{}", n.to_str_radix(10)),
-            Expression::Add(_, l, r) => format!(
-                "({} + {})",
-                self.render_expression(&l, &vars),
+            Expression::ZeroExt(_, ty, expr) =>
+                self.render_expression(&expr, vars),
+            // Expression::SignExt(_, ty, e) => format!(
+            // Expression::Trunc(_, ty, e) => format!(
+            
+            // Comparators 
+            Expression::SMore(_, l, r) => format!(
+                "({} > {})",
+                self.render_expression(&l, vars),
                 self.render_expression(&r, vars)
             ),
-            Expression::Subtract(_, l, r) => format!(
-                "({} - {})",
-                self.render_expression(&l, &vars),
+            Expression::SLess(_, l, r) => format!(
+                "({} < {})",
+                self.render_expression(&l, vars),
                 self.render_expression(&r, vars)
             ),
+            Expression::SMoreEqual(_, l, r) => format!(
+                "({} >= {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::SLessEqual(_, l, r) => format!(
+                "({} <= {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::UMore(_, l, r) => format!(
+                "({} > {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::ULess(_, l, r) => format!(
+                "({} < {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::UMoreEqual(_, l, r) => format!(
+                "({} >= {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::ULessEqual(_, l, r) => format!(
+                "({} <= {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::Equal(_, l, r) => format!(
+                "({} == {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::NotEqual(_, l, r) => format!(
+                "({} != {})",
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            
+            // Arrays and Structs
+            // Expression::ArraySubscript(_, a, i) => format!(
+            // Expression::DynamicArraySubscript(_, a, _, i) => format!(
+            // Expression::StorageBytesSubscript(_, a, i) => format!(
+            // Expression::StorageBytesPush(_, a, i) => format!(
+            // Expression::StorageBytesPop(_, a) => format!(
+            // Expression::StorageBytesLength(_, a) => format!(
+            // Expression::StructMember(_, a, f) => format!(
+
+            // Bool operators
+            // Expression::Or(_, l, r) => format!(
+            //     "({} || {})", 
+            //     self.render_expression(&l, vars),
+            //     self.render_expression(&r, vars)
+            // ),
+            // Expression::And(_, l, r) => format!(
+            //     "({} && {})", 
+            //     self.render_expression(&l, vars),
+            //     self.render_expression(&r, vars)
+            // ),
+            Expression::Ternary(_, c, l, r) => format!(
+                "if {} {{ {} }} else {{ {} }}",
+                self.render_expression(&c, vars),
+                self.render_expression(&l, vars),
+                self.render_expression(&r, vars)
+            ),
+            Expression::Not(_, expr) => format!(
+                "!({})", 
+                self.render_expression(&expr, vars)
+            ),
+            // Expression::Complement(_, e) => format!("~{}", self.expr_to_string(contract, ns, e)),
+            Expression::UnaryMinus(_, expr) => format!(
+                "-{}", 
+                self.render_expression(&expr, vars)
+            ),
+
+            // Others
+            // Expression::Poison => "☠".to_string(),
+            // Expression::Unreachable => "❌".to_string(),
+            // Expression::AllocDynamicArray(_, ty, size, None) => format!(
+            // Expression::AllocDynamicArray(_, ty, size, Some(init)) => format!(
+            // Expression::DynamicArrayLength(_, a) => {
+            // Expression::StringCompare(_, l, r) => format!(
+            // Expression::StringConcat(_, l, r) => format!(
+            // Expression::LocalFunctionCall(_, f, args) => format!(
+            // Expression::Constructor {
+            //     contract_no,
+            //     constructor_no,
+            //     args,
+            //     ..
+            // } =>
+            // Expression::CodeLiteral(_, contract_no, runtime) => format!(
+            // Expression::ExternalFunctionCall {
+            //     function_no,
+            //     contract_no,
+            //     address,
+            //     args,
+            //     ..
+            // } => format!(
             Expression::Keccak256(_, exprs) => {
                 let first = &exprs.get(0).unwrap().0;
                 let second = &exprs.get(1).unwrap().0;
@@ -366,8 +498,8 @@ impl<'a> CasperlabsContract<'a> {
                 )
             },
             _ => {
-                println!("{:?}", expression);
-                format!("unknown_expression")
+                println!("// Unknown expression {:?}", expression);
+                format!("unknown_expresson")
             }
         }
     }
