@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use num_traits::ToPrimitive;
+use num_bigint::BigInt;
 use crate::resolver::{Contract, FunctionDecl, Type,
     cfg::{ControlFlowGraph, Instr, Variable, BasicBlock},
     expression::Expression
@@ -25,12 +26,19 @@ impl<'a> CasperlabsContract<'a> {
             .collect()
     }
 
-    pub fn variable_name(&self, id: usize) -> String {
-        let name = self.contract.variables.get(id).unwrap().name.clone();
-        if name == MSG_SENDER {
-            GET_CALLER.to_string()
-        } else {
-            format!("\"{}\"", name)
+    pub fn variable_name(&self, id: usize) -> Option<String> {
+        println!("// var: {:?}", id);
+        // println!("// all vars: {:?}", self.contract.variables);
+        match self.contract.variables.get(id) {
+            Some(variable) => {
+                let name = variable.name.clone();
+                if name == MSG_SENDER {
+                    Some(GET_CALLER.to_string())
+                } else {
+                    Some(format!("\"{}\"", name))
+                }
+            },
+            None => None
         }
     }
 
@@ -74,7 +82,7 @@ impl<'a> CasperlabsContract<'a> {
                 unwrap_or_revert::UnwrapOrRevert,
             }};
             use casperlabs_types::{{
-                runtime_args, CLValue, CLTyped, CLType, Group, Parameter, RuntimeArgs, URef, U256,
+                runtime_args, CLValue, CLTyped, CLType, Group, Parameter, RuntimeArgs, URef, U256, ApiError,
                 bytesrepr::{{ToBytes, FromBytes}}, account::AccountHash,
                 contracts::{{EntryPoint, EntryPointAccess, EntryPointType, EntryPoints}},
             }};
@@ -110,6 +118,20 @@ impl<'a> CasperlabsContract<'a> {
 
             fn new_key(a: &str, b: AccountHash) -> String {{
                 format!(\"{{}}_{{}}\", a, b)
+            }}
+
+            fn assert(condition: bool) {{
+                if !condition {{
+                    runtime::revert(ApiError::User(1u16));
+                }}
+            }}
+
+            fn revert() {{
+                assert(false);
+            }}
+
+            fn require(condition: bool) {{
+                assert(condition);
             }}
         ")
     }
@@ -166,11 +188,11 @@ impl<'a> CasperlabsContract<'a> {
     }
 
     fn render_function_cfg(&self, cfg: &ControlFlowGraph) -> String {
-        println!("// Got blocks count: {}", cfg.bb.len());
-        for var in &cfg.vars {
-            println!("// Var: {}, {}", var.id.name, self.render_type(&var.ty));
-        }
-        println!("// Vars Done");
+        // println!("// Got blocks count: {}", cfg.bb.len());
+        // for var in &cfg.vars {
+        //     println!("// Var: {}, {}", var.id.name, self.render_type(&var.ty));
+        // }
+        // println!("// Vars Done");
         self.render_block(0, cfg)
     }
 
@@ -179,7 +201,7 @@ impl<'a> CasperlabsContract<'a> {
         let mut result = Vec::<String>::new();
         for instruction in &block.instr {
             match self.render_instruction(&instruction, &cfg) {
-                Some(i) => result.push(format!{"{}", i}),
+                Some(i) => result.push(i),
                 None => {}
             }
         }
@@ -190,31 +212,31 @@ impl<'a> CasperlabsContract<'a> {
         match instruction {
             Instr::Eval { expr } => { 
                 // println!("expression: {}", self.render_expression(&expr, vars));
-                // Some(self.render_expression(&expr, &cfg.vars))
+                // Some(self.render_expression(&expr, cfg))
                 None
             },
             Instr::Return { value } => {
                 if value.is_empty() { None } else {
                     let expression = self.render_expression(
-                        &value.first().unwrap(), &cfg.vars);
+                        &value.first().unwrap(), cfg);
                     Some(format!("ret({});", expression))
                 }
             },
             Instr::SetStorage { ty: _, local, storage } => {
                 Some(format!(
                     "set_key({}, {});",
-                    self.render_var_name_or_default(&storage, &cfg.vars),
-                    self.render_local_var(*local, &cfg.vars)
+                    self.render_var_name_or_default(&storage, cfg),
+                    self.render_local_var(*local, cfg)
                 ))
             },
             Instr::Set { res, expr } => {
-                let left = self.render_local_var(*res, &cfg.vars);
-                let right = self.render_expression(&expr, &cfg.vars);
+                let left = self.render_local_var(*res, cfg);
+                let right = self.render_expression(&expr, cfg);
                 if left == right { 
                     return None 
                 };
                 Some(format!(
-                    "let {}: {} = {};",
+                    "let mut {}: {} = {};",
                     left,
                     self.render_type(&cfg.vars[*res].ty),
                     right
@@ -224,7 +246,7 @@ impl<'a> CasperlabsContract<'a> {
                 let fn_name = self.contract.functions.get(*func).unwrap().name.clone();
                 let mut result = Vec::<String>::new();
                 for arg in args {
-                    result.push(self.render_expression(arg, &cfg.vars));
+                    result.push(self.render_expression(arg, cfg));
                 }
                 Some(format!(
                     "{}({});",
@@ -239,7 +261,7 @@ impl<'a> CasperlabsContract<'a> {
                 };
                 Some(format!(
                     "if {} {{ {} }} {}",
-                    self.render_expression(&cond, &cfg.vars),
+                    self.render_expression(&cond, cfg),
                     self.render_block(*true_, cfg),
                     else_stm
                 ))
@@ -256,13 +278,15 @@ impl<'a> CasperlabsContract<'a> {
             Instr::Constant { res, constant} => {
                 panic!("Unhandled Instr::Constant");
             },
-
             Instr::Store { dest, pos} => {
-                panic!("Unhandled Instr::Store");
+                // panic!("Unhandled Instr::Store");
+                Some(format!("{} = {}",
+                    self.render_var_name_or_default(dest, cfg),
+                    self.render_local_var(*pos, cfg)
+                ))
             },
-            Instr::AssertFailure { expr} => {
-                panic!("Unhandled Instr::AssertFaulure");
-            },
+            Instr::AssertFailure { expr} =>
+                self.render_instruction(&Instr::Unreachable, &cfg),
             Instr::Print{ expr} => {
                 panic!("Unhandled Instr::Print");
             },
@@ -299,7 +323,7 @@ impl<'a> CasperlabsContract<'a> {
                 panic!("Unhandled Instr::AbiDecode");
             },
             Instr::Unreachable => {
-                panic!("Unhandled Instr::Unreachable");
+                Some(format!("assert(false);"))
             },
             Instr::SelfDestruct { recipient} => {
                 panic!("Unhandled Instr::SelfDestruct");
@@ -309,61 +333,75 @@ impl<'a> CasperlabsContract<'a> {
             }
         }
     }
-
-    fn render_expression(&self, expression: &Expression, vars: &Vec<Variable>) -> String {
+    // vars: &Vec<Variable>
+    fn render_expression(&self, expression: &Expression, cfg: &ControlFlowGraph) -> String {
         match expression {
             // Literals
-            Expression::FunctionArg(_, pos) => self.render_local_var(*pos, vars),
+            Expression::FunctionArg(_, pos) => self.render_local_var(*pos, cfg),
             Expression::BoolLiteral(_, false) => "false".to_string(),
             Expression::BoolLiteral(_, true) => "true".to_string(),
-            // Expression::BytesLiteral(_, s) =>
+            Expression::BytesLiteral(_, s) => format!("vec!{:?}", s),
             Expression::NumberLiteral(_, _bits, n) => format!("{}", n.to_str_radix(10)),
             // Expression::StructLiteral(_, _, expr) =>
             // Expression::ConstArrayLiteral(_, dims, exprs) =>
-            // Expression::ArrayLiteral(_, _, dims, exprs) => 
-            
-            // Arithmetic
+            Expression::ArrayLiteral(_, _, dims, exprs) => 
+                self.render_static_array(dims, exprs, cfg),
+
+                // Arithmetic
             Expression::Add(_, l, r) => format!(
                 "({} + {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::Subtract(_, l, r) => format!(
                 "({} - {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
-            // Expression::BitwiseOr(_, l, r) => format!(
-            // Expression::BitwiseAnd(_, l, r) => format!(
-            // Expression::BitwiseXor(_, l, r) => format!(
+            Expression::BitwiseOr(_, l, r) => format!(
+                "({}.iter().zip({}.iter()).map(|e| e.0 | e.1).collect::<Vec<u8>>())",
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
+            ),
+            Expression::BitwiseAnd(_, l, r) => format!(
+                "({}.iter().zip({}.iter()).map(|e| e.0 & e.1).collect::<Vec<u8>>())",
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
+            ),
+            Expression::BitwiseXor(_, l, r) => format!(
+                "({}.iter().zip({}.iter()).map(|e| e.0 ^ e.1).collect::<Vec<u8>>())",
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
+            ),
             // Expression::ShiftLeft(_, l, r) => format!(
             // Expression::ShiftRight(_, l, r, _) => format!(
             Expression::Multiply(_, l, r) => format!(
                 "({} * {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::UDivide(_, l, r) | Expression::SDivide(_, l, r) => format!(
                 "({} / {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::UModulo(_, l, r) | Expression::SModulo(_, l, r) => format!(
                 "({} % {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::Power(_, l, r) => format!(
                 "{}.pow({})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
 
             // Data
-            Expression::Variable(_, res) => self.render_local_var(*res, vars),
+            Expression::Variable(_, res) => self.render_local_var(*res, cfg),
             // Expression::Load(_, expr) => {
             Expression::StorageLoad(_, ty, expr) => {
-                match self.render_var_name_or_default(expr, vars).as_str() {
+                // println!("// storage load {:?}", expr);
+                match self.render_var_name_or_default(&expr, cfg).as_str() {
                     GET_CALLER => GET_CALLER.to_string(),
                     result => format!(
                         "get_key::<{}>({})",
@@ -373,64 +411,68 @@ impl<'a> CasperlabsContract<'a> {
                 }
             },
             Expression::ZeroExt(_, ty, expr) =>
-                self.render_expression(&expr, vars),
+                self.render_expression(&expr, cfg),
             // Expression::SignExt(_, ty, e) => format!(
             // Expression::Trunc(_, ty, e) => format!(
             
             // Comparators 
             Expression::SMore(_, l, r) => format!(
                 "({} > {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::SLess(_, l, r) => format!(
                 "({} < {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::SMoreEqual(_, l, r) => format!(
                 "({} >= {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::SLessEqual(_, l, r) => format!(
                 "({} <= {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::UMore(_, l, r) => format!(
                 "({} > {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::ULess(_, l, r) => format!(
                 "({} < {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::UMoreEqual(_, l, r) => format!(
                 "({} >= {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::ULessEqual(_, l, r) => format!(
                 "({} <= {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::Equal(_, l, r) => format!(
                 "({} == {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::NotEqual(_, l, r) => format!(
                 "({} != {})",
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             
             // Arrays and Structs
-            // Expression::ArraySubscript(_, a, i) => format!(
+            Expression::ArraySubscript(_, a, i) => format!(
+                "{}[{} as usize]",
+                self.render_expression(a, cfg),
+                self.render_expression(i, cfg)
+            ),
             // Expression::DynamicArraySubscript(_, a, _, i) => format!(
             // Expression::StorageBytesSubscript(_, a, i) => format!(
             // Expression::StorageBytesPush(_, a, i) => format!(
@@ -441,35 +483,36 @@ impl<'a> CasperlabsContract<'a> {
             // Bool operators
             // Expression::Or(_, l, r) => format!(
             //     "({} || {})", 
-            //     self.render_expression(&l, vars),
-            //     self.render_expression(&r, vars)
+            //     self.render_expression(&l, cfg),
+            //     self.render_expression(&r, cfg)
             // ),
             // Expression::And(_, l, r) => format!(
             //     "({} && {})", 
-            //     self.render_expression(&l, vars),
-            //     self.render_expression(&r, vars)
+            //     self.render_expression(&l, cfg),
+            //     self.render_expression(&r, cfg)
             // ),
             Expression::Ternary(_, c, l, r) => format!(
                 "if {} {{ {} }} else {{ {} }}",
-                self.render_expression(&c, vars),
-                self.render_expression(&l, vars),
-                self.render_expression(&r, vars)
+                self.render_expression(&c, cfg),
+                self.render_expression(&l, cfg),
+                self.render_expression(&r, cfg)
             ),
             Expression::Not(_, expr) => format!(
                 "!({})", 
-                self.render_expression(&expr, vars)
+                self.render_expression(&expr, cfg)
             ),
             // Expression::Complement(_, e) => format!("~{}", self.expr_to_string(contract, ns, e)),
             Expression::UnaryMinus(_, expr) => format!(
-                "-{}", 
-                self.render_expression(&expr, vars)
+                "-({})", 
+                self.render_expression(&expr, cfg)
             ),
 
             // Others
             // Expression::Poison => "☠".to_string(),
             // Expression::Unreachable => "❌".to_string(),
             // Expression::AllocDynamicArray(_, ty, size, None) => format!(
-            // Expression::AllocDynamicArray(_, ty, size, Some(init)) => format!(
+            Expression::AllocDynamicArray(_, ty, size, Some(init)) => 
+                format!(""),
             // Expression::DynamicArrayLength(_, a) => {
             // Expression::StringCompare(_, l, r) => format!(
             // Expression::StringConcat(_, l, r) => format!(
@@ -489,13 +532,29 @@ impl<'a> CasperlabsContract<'a> {
             //     ..
             // } => format!(
             Expression::Keccak256(_, exprs) => {
-                let first = &exprs.get(0).unwrap().0;
-                let second = &exprs.get(1).unwrap().0;
-                format!(
-                    "&new_key({}, {})",
-                    self.render_var_name_or_default(first, vars),
-                    self.render_expression(second, vars)
-                )
+                println!("// expres: {:?}", exprs);
+                match exprs.len() {
+                    1 => {
+                        let first = &exprs.get(0).unwrap().0;
+                        match first {
+                            Expression::NumberLiteral(_, bits, n) => {
+                                let position: usize = n.to_usize().unwrap();
+                                self.render_local_var(position, cfg)
+                            }
+                            _ => panic!("Unexpected keccak argument type")
+                        }
+                    },
+                    2 => {
+                        let first = &exprs.get(0).unwrap().0;
+                        let second = &exprs.get(1).unwrap().0;
+                        format!(
+                            "&new_key({}, {})",
+                            self.render_var_name_or_default(first, cfg),
+                            self.render_expression(second, cfg)
+                        )
+                    },
+                    _ => panic!("Unsupportet number of keccak arguments")
+                }
             },
             _ => {
                 println!("// Unknown expression {:?}", expression);
@@ -504,31 +563,85 @@ impl<'a> CasperlabsContract<'a> {
         }
     }
 
-    fn render_var_name_or_default(&self, expression: &Expression, vars: &Vec<Variable>) -> String {
+    fn render_static_array(&self,  dims: &Vec<u32>, exprs: &Vec<Expression>, cfg: &ControlFlowGraph) -> String {
+        let mut result = Vec::new();
+        for expr in exprs {
+            result.push(self.render_expression(expr, cfg));
+        }
+        for dim in dims {
+            let mut data = Vec::new();
+            for elem in result.chunks(*dim as usize) {
+                data.push(format!("[{}]", elem.join(", ")));
+            }
+            println!("// {:?}", data);
+            result = data;
+        }
+        result.join(",")
+    }
+
+    fn render_var_name_or_default(&self, expression: &Expression, cfg: &ControlFlowGraph) -> String {
         match expression {
             Expression::NumberLiteral(_, _bits, n) => {
                 let position: usize = n.to_usize().unwrap();
-                self.variable_name(position)
+                match self.variable_name(position) {
+                    Some(name) => name,
+                    None => format!("\"{}\"", position)
+                }
+            },
+            Expression::Add(_, _, _,) | Expression::Multiply(_, _, _) => {
+                format!("&format!(\"{{}}\", {})", self.render_expression(expression, cfg))
+            },
+            _ => {
+                self.render_expression(expression, cfg)
             }
-            _ => self.render_expression(expression, vars)
         }
     }
 
-    fn render_local_var(&self, id: usize, vars: &Vec<Variable>) -> String {
-        vars[id].id.name.replace(".", "").clone()
+    fn render_local_var(&self, id: usize, cfg: &ControlFlowGraph) -> String {
+        cfg.vars[id].id.name.replace(".", "").clone()
     }
 
     fn render_type(&self, ty: &Type) -> String {
         match ty {
-            Type::Bool => "bool",
-            Type::String => "String",
-            Type::Uint(8) => "u8",
-            Type::Uint(256) => "U256",
-            Type::Address(false) => "AccountHash",
+            Type::Bool => "bool".to_string(),
+            Type::String => "String".to_string(),
+            Type::Uint(8) => "u8".to_string(),
+            Type::Uint(16) => "u16".to_string(),
+            Type::Uint(32) => "u32".to_string(),
+            Type::Uint(64) => "u64".to_string(),
+            Type::Uint(128) => "u128".to_string(),
+            Type::Uint(256) => "U256".to_string(),
+            Type::Int(8) => "i8".to_string(),
+            Type::Int(16) => "i16".to_string(),
+            Type::Int(32) => "i32".to_string(),
+            Type::Int(64) => "i64".to_string(),
+            Type::Int(128) => "i128".to_string(),
+            Type::Address(false) => "AccountHash".to_string(),
+            Type::Bytes(_) => "Vec<u8>".to_string(),
+            Type::Array(inner_ty, dims) => 
+                self.render_array_type(inner_ty, dims),
+            Type::Ref(ty) => self.render_type(ty),
+            Type::StorageRef(ty) => self.render_type(ty),
             _ => {
-                "unknown_type"
+                print!("// unknow_type: {:?}", ty);
+                "unknown_type".to_string()
             }
-        }.to_string()
+        }
+    }
+
+    fn render_array_type(&self, inner_ty: &Type, dims: &Vec<Option<BigInt>>) -> String {
+        let mut result = self.render_type(inner_ty);
+        for dim in dims.iter() {
+            match dim {
+                Some(dim) => {
+                    result = format!("[{}; {}]", result, dim);
+                },
+                None => {
+                    result = format!("Vec<{}>", result)
+                }
+            }
+        }
+        result
     }
 }
 

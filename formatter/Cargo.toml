@@ -5,8 +5,8 @@ authors = ["zie1ony <maciej@casperlabs.io>"]
 edition = "2018"
 
 [dependencies]
-casperlabs-contract = "0.6.0"
-casperlabs-types = "0.6.0"
+casperlabs-contract = "0.6.1"
+casperlabs-types = "0.6.1"
 casperlabs_contract_macro = "0.1.0"
 
 [[bin]]

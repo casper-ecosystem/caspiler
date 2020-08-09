@@ -12,11 +12,11 @@ contract ERC20 {
     // phantom
     address msg_sender;
 
-    constructor (string Name, string tSymbol, uint256 tTotalSupply) public {
-        _name = tName;
-        _symbol = tSymbol;
+    constructor (string name, string symbol, uint256 totalSupply) public {
+        _name = name;
+        _symbol = symbol;
         _decimals = 18;
-        _balances[msg_sender] = tTotalSupply;
+        _balances[msg_sender] = totalSupply;
         _totalSupply = totalSupply;
     }
 
@@ -66,13 +66,6 @@ contract ERC20 {
     }
 
     function _approve(address owner, address spender, uint256 amount) internal {
-        uint256 b;
-        rust {
-            use my_crate;
-            b = amount as u64;
-            b = my_crate::parse(b)
-        }
-
         _allowances[owner][spender] = amount;
     }
 }

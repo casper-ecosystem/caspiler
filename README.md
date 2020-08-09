@@ -39,3 +39,12 @@
     - [x] U256
     - [x] Address
     - [x] Mapping
+    - [x] Static sized arrays
+    - [ ] Dynamic sized arrays
+- [x] Asserts
+    - [x] Assert
+    - [ ] Assert with the error message, skips the message.
+    - [x] Revert
+    - [ ] Revert with the error message, skips the message.
+    - [x] Require
+    - [ ] Require with the error message, skips the message.

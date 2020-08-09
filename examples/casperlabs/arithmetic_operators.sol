@@ -16,7 +16,7 @@ contract Contract {
         uint256 r = a / b;
 	}
 
-    function pow(uint256 a, uint256 b) public {
+    function powerOf(uint256 a, uint256 b) public {
         uint256 r = a ** b;
     }
 
@@ -44,7 +44,23 @@ contract Contract {
         a %= b;
     }
 
-    function unary(uint256 a) public {
-        a = -a;
+    function unary(int32 a) public {
+        int32 b = -a;
+    }
+
+    function preincrement(int32 a) public {
+        int32 r = ++a;
+    }
+
+    function postincrement(int32 a) public {
+        int32 r = a++;
+    }
+
+    function predecrement(int32 a) public {
+        int32 r = --a;
+    }
+
+    function postdecrement(int32 a) public {
+        int32 r = a--;
     }
 }
