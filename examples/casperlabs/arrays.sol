@@ -2,7 +2,7 @@ contract Contract {
 
     uint64[2][2] globalStaticNumbers;
 
-	function staticOneDimLocalArray() public {
+    function staticOneDimLocalArray() public {
         uint64[5] numbers = [ uint64(2), 3, 5, 7, 11 ];
         numbers[1] = uint64(13);
 	}

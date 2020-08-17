@@ -18,4 +18,23 @@ contract Contract {
     function ternary(bool a, bool b) public {
         uint256 r = a == b ? 1 : 2;
     }
+
+    function whileFn(uint32 n) public {
+        while (n >= 10) {
+            n -= 9;
+            while (n >= 1110) {
+                n -= 92;
+            }
+            n -= 92111;
+        }
+        n = 40;
+    }
+
+    function forFn() public {
+        uint n = 100000000;
+        for (uint i = 0; i <= 10; i += 100) {
+            n -= 92;
+        }
+        n += 1;
+    }
 }

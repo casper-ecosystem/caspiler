@@ -10,12 +10,13 @@ const MSG_SENDER: &str = "msg_sender";
 const GET_CALLER: &str = "runtime::get_caller()";
 
 pub struct CasperlabsContract<'a> {
-    pub contract: &'a Contract
+    pub contract: &'a Contract,
+    pub visited: u32
 }
 
 impl<'a> CasperlabsContract<'a> {
     pub fn new(contract: &'a Contract) -> Self {
-        CasperlabsContract { contract }
+        CasperlabsContract { contract, visited: 0u32 }
     }
 
     // Api for Solang's Contract.
@@ -138,8 +139,8 @@ impl<'a> CasperlabsContract<'a> {
 
     fn render_functions(&self) -> String {
         let mut result = Vec::<String>::new(); 
-        for function in &self.functions() {
-            result.push(self.render_function(&function));
+        for function in self.functions() {
+            result.push(self.render_function(function));
         }
         result.join("\n")
     }
@@ -193,14 +194,20 @@ impl<'a> CasperlabsContract<'a> {
         //     println!("// Var: {}, {}", var.id.name, self.render_type(&var.ty));
         // }
         // println!("// Vars Done");
-        self.render_block(0, cfg)
+        self.render_block(0, cfg, Vec::new())
     }
 
-    fn render_block(&self, block_id: usize, cfg: &ControlFlowGraph) -> String {
+    fn render_block(
+        &self, 
+        block_id: usize, 
+        cfg: &ControlFlowGraph, 
+        mut visited_bbs: Vec<usize>
+    ) -> String {
+        visited_bbs.push(block_id);
         let block = cfg.bb.get(block_id).unwrap();
         let mut result = Vec::<String>::new();
         for instruction in &block.instr {
-            match self.render_instruction(&instruction, &cfg) {
+            match self.render_instruction(&instruction, &cfg, visited_bbs.clone()) {
                 Some(i) => result.push(i),
                 None => {}
             }
@@ -208,7 +215,12 @@ impl<'a> CasperlabsContract<'a> {
         result.join("")
     }
 
-    fn render_instruction(&self, instruction: &Instr, cfg: &ControlFlowGraph) -> Option<String> {
+    fn render_instruction(
+        &self, 
+        instruction: &Instr, 
+        cfg: &ControlFlowGraph, 
+        visited_bbs: Vec<usize>
+    ) -> Option<String> {
         match instruction {
             Instr::Eval { expr } => { 
                 // println!("expression: {}", self.render_expression(&expr, vars));
@@ -236,7 +248,7 @@ impl<'a> CasperlabsContract<'a> {
                     return None 
                 };
                 Some(format!(
-                    "let mut {}: {} = {};",
+                    "let {}: {} = {};",
                     left,
                     self.render_type(&cfg.vars[*res].ty),
                     right
@@ -255,19 +267,53 @@ impl<'a> CasperlabsContract<'a> {
                 ))
             },
             Instr::BranchCond { cond, true_, false_} => {
-                let else_stm = match self.render_block(*false_, cfg) {
-                    code if code.len() == 0 => code,
-                    code => format!("else {{ {} }}", code)
-                };
-                Some(format!(
-                    "if {} {{ {} }} {}",
-                    self.render_expression(&cond, cfg),
-                    self.render_block(*true_, cfg),
-                    else_stm
-                ))
+                let true_bb = cfg.bb.get(*true_).unwrap();
+                let false_bb = cfg.bb.get(*false_).unwrap();
+                let cond = self.render_expression(&cond, cfg);
+                println!("// false {:?}", false_bb);
+                println!("// true {:?}", true_bb);
+
+                match false_bb.name.as_str() {
+                    "endwhile" => {
+                        Some(format!(
+                            "while {} {{ {} }} {}",
+                            cond,
+                            self.render_block(*true_, cfg, visited_bbs.clone()),
+                            self.render_block(*false_, cfg, visited_bbs.clone())
+                        ))
+                    },
+                    "endfor" => {
+                        Some(format!(
+                            "while {} {{ {} }} {}",
+                            cond,
+                            self.render_block(*true_, cfg, visited_bbs.clone()),
+                            self.render_block(*false_, cfg, visited_bbs.clone())
+                        ))
+                    },
+                    "endif" | "else" => {
+                        let else_stm = match self.render_block(*false_, cfg, visited_bbs.clone()) {
+                            code if code.len() == 0 => code,
+                            code => format!("else {{ {} }}", code)
+                        };
+                        Some(format!(
+                            "if {} {{ {} }} {}",
+                            cond,
+                            self.render_block(*true_, cfg, visited_bbs.clone()),
+                            else_stm
+                        ))
+                    }
+                    _ => None
+                }
+
             },
             Instr::Branch { bb} => {
-                Some(self.render_block(*bb, cfg))
+                println!("// branch {:?} {:?}", bb, cfg.bb.get(*bb));
+                if visited_bbs.contains(bb) {
+                    None
+                } else {
+                    Some(self.render_block(*bb, cfg, visited_bbs))
+                }
+                // None
             },
             Instr::ClearStorage { ty, storage} => {
                 panic!("Unhandled Instr::ClearStorage");
@@ -286,7 +332,7 @@ impl<'a> CasperlabsContract<'a> {
                 ))
             },
             Instr::AssertFailure { expr} =>
-                self.render_instruction(&Instr::Unreachable, &cfg),
+                self.render_instruction(&Instr::Unreachable, &cfg, visited_bbs),
             Instr::Print{ expr} => {
                 panic!("Unhandled Instr::Print");
             },
@@ -333,7 +379,7 @@ impl<'a> CasperlabsContract<'a> {
             }
         }
     }
-    // vars: &Vec<Variable>
+
     fn render_expression(&self, expression: &Expression, cfg: &ControlFlowGraph) -> String {
         match expression {
             // Literals
@@ -532,18 +578,18 @@ impl<'a> CasperlabsContract<'a> {
             //     ..
             // } => format!(
             Expression::Keccak256(_, exprs) => {
-                println!("// expres: {:?}", exprs);
+                // println!("// expres: {:?}", exprs);
                 match exprs.len() {
-                    1 => {
-                        let first = &exprs.get(0).unwrap().0;
-                        match first {
-                            Expression::NumberLiteral(_, bits, n) => {
-                                let position: usize = n.to_usize().unwrap();
-                                self.render_local_var(position, cfg)
-                            }
-                            _ => panic!("Unexpected keccak argument type")
-                        }
-                    },
+                    // 1 => {
+                    //     let first = &exprs.get(0).unwrap().0;
+                    //     match first {
+                    //         Expression::NumberLiteral(_, bits, n) => {
+                    //             let position: usize = n.to_usize().unwrap();
+                    //             self.render_local_var(position, cfg)
+                    //         }
+                    //         _ => panic!("Unexpected keccak argument type")
+                    //     }
+                    // },
                     2 => {
                         let first = &exprs.get(0).unwrap().0;
                         let second = &exprs.get(1).unwrap().0;
@@ -562,6 +608,8 @@ impl<'a> CasperlabsContract<'a> {
             }
         }
     }
+
+    // fn render_if(&self, )
 
     fn render_static_array(&self,  dims: &Vec<u32>, exprs: &Vec<Expression>, cfg: &ControlFlowGraph) -> String {
         let mut result = Vec::new();

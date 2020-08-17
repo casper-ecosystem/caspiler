@@ -16,6 +16,7 @@ use resolver::expression::{
 };
 
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 pub enum Instr {
     ClearStorage {
         ty: resolver::Type,
@@ -105,7 +106,7 @@ pub enum Instr {
     },
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum HashTy {
     Keccak256,
     Ripemd160,
@@ -126,6 +127,7 @@ impl fmt::Display for HashTy {
     }
 }
 
+#[derive(Debug)]
 pub struct BasicBlock {
     pub phis: Option<HashSet<usize>>,
     pub name: String,

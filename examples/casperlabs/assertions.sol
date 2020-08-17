@@ -19,5 +19,4 @@ contract Contract {
 	function requireWithString(int32 a) public {
         require(a > 0, "This is ignored");
 	}
-
 }

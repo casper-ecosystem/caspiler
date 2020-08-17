@@ -33,6 +33,8 @@
     - [x] Calling Local Methods
     - [x] `msg.sender` (dirty hack)
     - [x] Returns
+    - [x] While
+    - [x] For
 - [x] Types
     - [x] Bool
     - [x] U8

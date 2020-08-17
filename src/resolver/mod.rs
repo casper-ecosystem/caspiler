@@ -415,7 +415,7 @@ impl EnumDecl {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Parameter {
     pub name: String,
     pub ty: Type,
