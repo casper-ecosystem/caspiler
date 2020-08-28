@@ -670,6 +670,7 @@ impl<'a> CasperlabsContract<'a> {
                 self.render_array_type(inner_ty, dims),
             Type::Ref(ty) => self.render_type(ty),
             Type::StorageRef(ty) => self.render_type(ty),
+            Type::Enum(_) => "u8".to_string(),
             _ => {
                 print!("// unknow_type: {:?}", ty);
                 "unknown_type".to_string()

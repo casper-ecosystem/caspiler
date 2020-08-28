@@ -43,6 +43,7 @@
     - [x] Mapping
     - [x] Static sized arrays
     - [ ] Dynamic sized arrays
+    - [x] Enums
 - [x] Asserts
     - [x] Assert
     - [ ] Assert with the error message, skips the message.
